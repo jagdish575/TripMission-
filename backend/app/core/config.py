@@ -130,6 +130,16 @@ class Settings(BaseSettings):
             return cls.model_fields[info.field_name].default
         return value
 
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def _psycopg_driver(cls, value: str) -> str:
+        """Hosted Postgres (Neon, Render, Supabase) hands out postgres:// or postgresql:// URLs; the installed
+        driver is psycopg 3, so pin it instead of letting SQLAlchemy pick psycopg2."""
+        for prefix in ("postgres://", "postgresql://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix):]
+        return value
+
     @model_validator(mode="after")
     def _database_in_data_dir(self) -> "Settings":
         default = type(self).model_fields["database_url"].default
