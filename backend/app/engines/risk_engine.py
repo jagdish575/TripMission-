@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 from app.engines.context import MissionContext
-from app.schemas.result import Itinerary, ReviewInsights, RiskAssessment, RiskFactor
+from app.schemas.result import Itinerary, ReviewInsights, RiskAssessment, RiskFactor, TravelConditions
 from app.services.review_insights import key_aspect_warning
 from app.utils.format import fmt_clock, fmt_minutes, fmt_money, mission_noun
 
 
 class RiskEngine:
-    def __init__(self, ctx: MissionContext) -> None:
+    def __init__(self, ctx: MissionContext, conditions: TravelConditions | None = None) -> None:
         self.ctx = ctx
+        self.conditions = conditions
 
     @staticmethod
     def _tight_changes(itin: Itinerary) -> int | None:
@@ -186,6 +187,43 @@ class RiskEngine:
                     "Less sleep before your mission.")
             else:
                 strengths.append(f"{word} the {'evening' if arrival.hour >= 17 else 'day'} before")
+
+        # 9b. same-day arrival in the middle of the night (overnight trains/buses with no hotel booked)
+        if same_day and itin.hotel is None and itin.mode != "flight":
+            at_venue = itin.arrival.venue_arrival
+            if at_venue.hour < 5:
+                add("night_arrival", "medium", 12, f"Reaches {self.ctx.destination.city} at {fmt_clock(at_venue)} at night",
+                    f"Hours to wait before your {noun} with nothing open nearby.",
+                    "Use the station's waiting room or book a few hours at a hotel near the venue.")
+
+        # 10. weather and reported disruption at the destination (Google weather / Google News)
+        cond = self.conditions
+        city = self.ctx.destination.city
+        if cond is not None and cond.weather is not None and cond.weather.kind:
+            w = cond.weather
+            day = f"{w.date:%d %b}"
+            hits_flights = w.kind in ("fog", "storm", "snow", "heavy_rain")
+            hits_roads = w.kind in ("storm", "heavy_rain", "snow", "fog")
+            sensitive = (itin.mode == "flight" and hits_flights) or (itin.mode in ("bus", "ground") and hits_roads) \
+                or (itin.mode in ("train", "transit") and w.kind in ("fog", "storm"))
+            detail = f"Forecast for {city} on {day}: {w.summary or w.label}" + (
+                f", {w.precipitation:.0f}% chance of rain" if w.precipitation is not None else "") + "."
+            if same_day and sensitive:
+                add("weather", "medium", 14, f"{w.label} forecast on the morning you travel", detail,
+                    "Travel the evening before if you can — " + (
+                        "fog and storms delay flights." if itin.mode == "flight" else "it absorbs weather delays."))
+            elif sensitive or w.kind != "rain":
+                add("weather", "low", 5, f"{w.label} forecast in {city} on {day}",
+                    detail + " Arriving the day before absorbs most of the delay." if not same_day else detail,
+                    "Allow extra time for the transfer to the venue.")
+        if cond is not None and cond.alerts:
+            first = cond.alerts[0]
+            more = f" (+{len(cond.alerts) - 1} more report{'s' if len(cond.alerts) > 2 else ''})" if len(cond.alerts) > 1 else ""
+            add("disruption", "medium" if same_day else "low", 10 if same_day else 5,
+                f"Reported in the news: {first.word}{more}",
+                f"“{first.title}” — {first.source or 'news'}, {first.published_at:%d %b}. We only read the headline; "
+                f"check whether it affects your route.",
+                "Check the latest local news and your operator's status before you leave.")
 
         score = min(100, sum(f.points for f in factors))
         severities = {f.severity for f in factors}

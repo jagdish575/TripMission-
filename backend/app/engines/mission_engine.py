@@ -22,15 +22,18 @@ from app.integrations.serpapi.client import CallTracker, SerpApiError
 from app.schemas.mission import AccessibilityNeed, MissionRequest
 from app.schemas.result import (ConstraintCheck, DataSources, FunnelStats, Itinerary, MethodNote, MissionResult,
                                 MissionSummary, ModeSummary, OptionDelta, PlaceGroup, ReviewInsights, RoutePlan,
-                                Suggestion, Tradeoff, VenueInfo)
+                                Suggestion, Tradeoff, VenueInfo, DisruptionAlert, ReturnPlan, TravelConditions,
+                                WeatherOutlook)
 from app.schemas.travel import (NormalizedFlight, NormalizedHotel, NormalizedReview, NormalizedRoute,
-                                NormalizedTransit, ReportedTransportRoute, ResolvedLocation)
+                                NormalizedTransit, ReportedTransportRoute, ResolvedLocation, TransitSegment)
 from app.services.airports import AIRPORTS
+from app.services.booking import booking_steps
 from app.services.explanation import AIExplainer, explain_recommendation
 from app.services.geo import estimate_drive_minutes, estimate_route, haversine_km, ROAD_FACTOR
 from app.services.location_resolution import LocationResolutionService
 from app.services.providers import TravelDataProvider
 from app.services.route_intelligence import RouteIntelligenceService
+from app.services.return_journey import plan_return
 from app.services.review_insights import build_insights
 from app.utils.format import fmt_clock, fmt_minutes, fmt_money, mission_noun
 
@@ -50,6 +53,8 @@ DEGRADED_MESSAGES: dict[str, str] = {
     "routes": "Some transfer times are estimated from distance because live route data was unavailable.",
     "reviews": "Recent hotel reviews couldn't be loaded, so hotel scores use ratings only.",
     "places": "Some local recommendations are temporarily unavailable.",
+    "conditions": "Weather and local news for your destination couldn't be checked right now.",
+    "return": "Return journeys couldn't be checked right now.",
 }
 
 # slug, search query, section label, why it matters for this mission
@@ -144,6 +149,59 @@ def match_reported_route(option: NormalizedTransit, routes: list[ReportedTranspo
     return None
 
 
+STATION_ACCESS_MINUTES = 30   # home -> boarding station when Google Search names the station but not where it is
+BOARDING_MARGIN_MINUTES = 20  # be at the platform / bus point this early
+STATION_EXIT_MINUTES = 10
+
+
+def transit_from_reported(routes: list[ReportedTransportRoute], mode: str, ctx: MissionContext,
+                          day: date | None = None) -> list[NormalizedTransit]:
+    """Door-to-venue options built from Google Search transport-options departures, for routes where Google Maps
+    has no schedule (common for Indian intercity rail). The service itself — times, duration, fare, sellers — is
+    what Google shows; getting to the station and from the station to the venue are estimated and labelled."""
+    out: list[NormalizedTransit] = []
+    last_mile = estimate_drive_minutes(max(0.5, haversine_km(ctx.destination.location, ctx.venue.location) * ROAD_FACTOR))
+    for index, r in enumerate(routes):
+        if r.depart_clock is None or (r.mode and r.mode != mode):
+            continue
+        depart = datetime.combine(day or ctx.mission_date, datetime.min.time()).replace(hour=r.depart_clock[0],
+                                                                                minute=r.depart_clock[1])
+        duration = r.duration_minutes
+        if duration is None and r.arrive_clock is not None:
+            duration = (r.arrive_clock[0] * 60 + r.arrive_clock[1] - depart.hour * 60 - depart.minute) % 1440
+        if not duration:
+            continue
+        arrive = depart + timedelta(minutes=duration)
+        board = (r.from_label or ctx.origin.city).strip()
+        alight = re.sub(r"\s*\(all stations\)", "", r.to_label or ctx.destination.city).strip()
+        word = "Train" if mode == "train" else "Bus"
+        if r.operators or r.numbers:
+            name = f"{(r.operators or [word])[0]}{' ' + ' / '.join(r.numbers) if r.numbers else ''}"
+        else:  # this box layout gives times and fares but no train names — name it by its departure
+            name = f"{depart:%H:%M} {word.lower()} from {board}"
+        cab = TransitSegment(mode="walk", name=f"Cab or auto to {ctx.venue.name} (estimated)", from_stop=alight,
+                             to_stop=ctx.venue.name, depart_at=arrive + timedelta(minutes=STATION_EXIT_MINUTES),
+                             arrive_at=arrive + timedelta(minutes=STATION_EXIT_MINUTES + last_mile),
+                             duration_minutes=STATION_EXIT_MINUTES + last_mile)
+        start = depart - timedelta(minutes=STATION_ACCESS_MINUTES + BOARDING_MARGIN_MINUTES)
+        end = cab.arrive_at
+        live_fare = r.fare is not None and r.currency == ctx.currency
+        out.append(NormalizedTransit(
+            id=f"gs-{mode}-{depart:%d%H%M}-{index}", mode=mode, title=f"{name} → {alight}" if name.endswith(board) else f"{name} · {board} → {alight}",
+            provider=r.operators[0] if r.operators else None, departure_time=start, arrival_time=end,
+            duration_minutes=int((end - start).total_seconds() // 60),
+            distance_km=ctx.plan.road_km if ctx.plan else None,
+            transfers=r.changes or 0, long_distance_minutes=duration,
+            segments=[TransitSegment(mode=mode, name=name, operator=r.operators[0] if r.operators else None,
+                                     from_stop=board, to_stop=alight, depart_at=depart, arrive_at=arrive,
+                                     duration_minutes=duration), cab],
+            fare=r.fare if live_fare else None, currency=r.currency if live_fare else None,
+            source="google_search_transport_options",
+            fare_source="google_search_transport_options" if live_fare else None,
+            fare_seller=r.sellers[0] if r.sellers else None, ticket_links=r.ticket_links))
+    return out
+
+
 def attach_reported_fares(options: list[NormalizedTransit], routes: list[ReportedTransportRoute],
                           currency: str) -> int:
     """Replace missing fares with the fare Google Search shows for the matching route (same currency only —
@@ -159,6 +217,7 @@ def attach_reported_fares(options: list[NormalizedTransit], routes: list[Reporte
         option.fare, option.currency = route.fare, route.currency
         option.fare_source = "google_search_transport_options"
         option.fare_seller = route.sellers[0] if route.sellers else None
+        option.ticket_links = route.ticket_links
         matched += 1
     return matched
 
@@ -208,11 +267,13 @@ class MissionEngine:
     async def run(self, mission_id: str, request: MissionRequest,
                   resolved: tuple[ResolvedLocation, ResolvedLocation] | None = None) -> MissionResult:
         self._places_task: asyncio.Task | None = None
+        self._side_tasks: list[asyncio.Task] = []
         try:
             return await self._run(mission_id, request, resolved)
         finally:
-            if self._places_task is not None and not self._places_task.done():
-                self._places_task.cancel()
+            for task in (self._places_task, *self._side_tasks):
+                if task is not None and not task.done():
+                    task.cancel()
 
     async def _run(self, mission_id: str, request: MissionRequest,
                    resolved: tuple[ResolvedLocation, ResolvedLocation] | None) -> MissionResult:
@@ -242,6 +303,10 @@ class MissionEngine:
         builder = ItineraryEngine(ctx)
         # Local discovery only depends on the venue — run it alongside everything else.
         places_task = self._places_task = asyncio.create_task(self._places(ctx))
+        # Weather / disruption news and the way home only need the places too — also in parallel.
+        conditions_task = asyncio.create_task(self._conditions(ctx))
+        return_task = asyncio.create_task(plan_return(self.provider, ctx, s, self.tracker, outbound_total=None))
+        self._side_tasks += [conditions_task, return_task]
 
         # ---------------------------------------------------------- 2. flights + trains/buses + road, in parallel
         modes = set(plan.modes_evaluated)
@@ -361,7 +426,14 @@ class MissionEngine:
                                                       sd_hotels, nb_hotels, routes)
         if not itineraries and hotel_errors and (need_nb_hotels or need_sd_hotels):
             raise hotel_errors[0]
-        scorer, risk_engine = ScoringEngine(ctx, self.scoring_config), RiskEngine(ctx)
+        if request.earliest_departure is not None:
+            # "I'm running late": a journey that should already have left is no longer an option
+            before = len(itineraries)
+            itineraries = [i for i in itineraries if i.timeline and i.timeline[0].time >= request.earliest_departure]
+            if before and not itineraries:
+                self._warn(f"Nothing that leaves after {fmt_clock(request.earliest_departure)} gets you there in time.")
+        conditions = await self._side_result(conditions_task, "conditions")
+        scorer, risk_engine = ScoringEngine(ctx, self.scoring_config), RiskEngine(ctx, conditions)
         fastest = min((i.total_travel_minutes for i in itineraries), default=None)
         on_time = [i.cost.total for i in itineraries if i.cost.total is not None and i.arrival.buffer_minutes >= 0]
         cheapest_cost = min(on_time, default=None)
@@ -369,6 +441,7 @@ class MissionEngine:
             itin.scores = scorer.score(itin, fastest, cheapest_cost)
             itin.risk = risk_engine.assess(itin)
             itin.constraints = self._constraints(ctx, itin)
+            itin.booking = booking_steps(itin, ctx)
         self.funnel.itineraries_scored = len(itineraries)
         self.artifacts.itineraries = itineraries
         feasible = [i for i in itineraries if i.constraints and i.constraints.feasible]
@@ -412,6 +485,7 @@ class MissionEngine:
         suggestions = self._suggestions(ctx, itineraries, feasible, relaxed_stop_ok, relaxed_rating,
                                         bool(all_flights or transit_all or ground_route), status, earliest_arrival)
         shown = self._select_for_display(itineraries, feasible, categories)
+        return_plan = await self._return_plan(return_task, by_id.get(categories.get("recommended", "")))
 
         return MissionResult(
             mission_id=mission_id,
@@ -436,8 +510,48 @@ class MissionEngine:
             headline=self._headline(ctx, status, by_id.get(categories.get("recommended", ""))),
             route=plan,
             methodology=self._methodology(ctx, modes, bool(self.artifacts.hotels), bool(places)),
+            conditions=conditions,
+            return_plan=return_plan,
+            replan_of=request.replan_of,
+            replanned_at=request.earliest_departure if request.replan_of else None,
             diagnostics={"notes": self.debug_notes, "degraded": self.degraded},
         )
+
+    async def _conditions(self, ctx: MissionContext) -> TravelConditions | None:
+        """Weather on the mission day and recent disruption headlines at the destination (optional)."""
+        if self.provider.mode == "demo":
+            return None  # the demo dataset has no weather or news — never show anything that looks live
+        city = ctx.destination.city
+        weather, news = await asyncio.gather(
+            self._optional(self.provider.weather(city, ctx.mission_date, tracker=self.tracker), "conditions"),
+            self._optional(self.provider.disruption_news(city, tracker=self.tracker), "conditions"))
+        days_out = (ctx.mission_date - date.today()).days
+        note = None
+        if weather is None:
+            note = ("Forecasts are published about a week ahead — check again closer to the date." if days_out > 7
+                    else "No forecast was available for this date.")
+        return TravelConditions(weather=WeatherOutlook(**weather) if weather else None, weather_note=note,
+                                alerts=[DisruptionAlert(**a) for a in news or []],
+                                checked_at=datetime.now(timezone.utc))
+
+    async def _side_result(self, task: asyncio.Task, key: str):
+        """Await an optional side lookup; any failure is logged and degrades quietly, never fails the mission."""
+        try:
+            return await task
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("optional lookup failed", extra={"context": {"part": key, "error": type(exc).__name__}})
+            self._degrade(key, type(exc).__name__)
+            return None
+
+    async def _return_plan(self, task: asyncio.Task, recommended: Itinerary | None) -> ReturnPlan | None:
+        plan = await self._side_result(task, "return")
+        if plan is not None and recommended is not None and recommended.cost.total is not None:
+            cheapest = min((o.fare for o in plan.options if o.fare is not None), default=None)
+            if cheapest is not None:
+                plan.round_trip_total = round(recommended.cost.total + cheapest)
+        return plan
 
     # =================================================================== route intelligence helpers
     @staticmethod
@@ -506,15 +620,21 @@ class MissionEngine:
         arrive_by = ctx.deadline - timedelta(minutes=req.min_buffer_minutes)
         wheelchair = bool({AccessibilityNeed.wheelchair, AccessibilityNeed.accessible_transport} & set(req.accessibility))
         prefers = [p for p in ("train", "bus") if p in modes]
-        # Fares Google Search shows for these routes run alongside the schedule searches (optional, short timeout)
-        fares_task = asyncio.gather(*[self._reported_fares(ctx, p) for p in prefers])
+        # Google Search transport options run alongside the schedule searches (optional, short timeout): they add
+        # fares to Google Maps services, and stand in for Maps when it has no schedule for a mode.
+        # Departures the day before too: overnight trains that arrive on the mission morning are often the best
+        # option for an early deadline, and evening arrivals serve the night-before strategy.
+        days = [ctx.day_before, ctx.mission_date]
+        searches = [(p, d) for p in prefers for d in days]
+        fares_task = asyncio.gather(*[self._reported_fares(ctx, p, d) for p, d in searches])
         results = await asyncio.gather(*[
             self.provider.transit_routes(
                 f"{ctx.origin.city}", ctx.venue.location, end_label=ctx.venue.name, arrive_by=arrive_by,
                 utc_offset_minutes=330 if ctx.destination.country == "IN" else 0, wheelchair=wheelchair,
                 currency=ctx.currency, tracker=self.tracker, prefer=p)
             for p in prefers], return_exceptions=True)
-        reported = [r for group in await fares_task for r in group]
+        reported_groups = await fares_task
+        reported = [r for group in reported_groups for r in group]
         merged: dict[str, NormalizedTransit] = {}
         failures = 0
         for res in results:
@@ -530,9 +650,13 @@ class MissionEngine:
             self._degrade("transit")
         options = list(merged.values())
         self.funnel.fares_matched = attach_reported_fares(options, reported, ctx.currency)
+        maps_modes = {m for o in options for m in (o.mode, *(s.mode for s in o.segments))}
+        for (mode, day), group in zip(searches, reported_groups):
+            if mode not in maps_modes:
+                options += transit_from_reported(group, mode, ctx, day)
         return options
 
-    async def _reported_fares(self, ctx: MissionContext, mode: str) -> list[ReportedTransportRoute]:
+    async def _reported_fares(self, ctx: MissionContext, mode: str, day: date | None = None) -> list[ReportedTransportRoute]:
         """Google Search transport-options fares for one mode. Optional enrichment: a failure, timeout or a
         provider without the lookup simply leaves fares estimated (and labelled so) — no user-facing warning."""
         lookup = getattr(self.provider, "transport_options", None)
@@ -540,7 +664,7 @@ class MissionEngine:
             return []
         try:
             return await asyncio.wait_for(
-                lookup(mode, ctx.origin.city, ctx.destination.city, ctx.mission_date, tracker=self.tracker),
+                lookup(mode, ctx.origin.city, ctx.destination.city, day or ctx.mission_date, tracker=self.tracker),
                 timeout=self.settings.optional_timeout_seconds)
         except (asyncio.TimeoutError, SerpApiError) as exc:
             self.debug_notes.append(f"{mode} fares: {getattr(exc, 'code', 'timeout')}")
@@ -572,14 +696,38 @@ class MissionEngine:
                 continue  # the traveller asked for same-day travel only
             (sd if strategy == "same_day" else nb).append(option)
 
-        def shortlist(items: list[NormalizedTransit]) -> list[NormalizedTransit]:
+        ctx = builder.ctx
+        target = ctx.deadline - timedelta(minutes=ctx.request.min_buffer_minutes)
+
+        def small_hours(o: NormalizedTransit) -> bool:
+            return 0 <= o.arrival_time.hour < 4  # arriving at 1–4 am with nowhere to go
+
+        def shortlist(items: list[NormalizedTransit], strategy: str) -> list[NormalizedTransit]:
+            """Per vehicle type, a few journeys that differ in a way a traveller cares about — not just the two
+            shortest. Same day: the quickest, the one arriving closest to the planned buffer (least waiting) and
+            the best overnight service. Night before: evening arrivals first, so the day before isn't lost."""
             picks: list[NormalizedTransit] = []
             for mode in ("train", "bus", "transit"):
-                ranked = sorted((o for o in items if o.mode == mode), key=lambda o: (o.duration_minutes, o.transfers))
-                picks += ranked[:2]
+                group = [o for o in items if o.mode == mode]
+                if not group:
+                    continue
+                quickest = sorted(group, key=lambda o: (o.duration_minutes, o.transfers))
+                if strategy == "same_day":
+                    on_time = [o for o in group if o.arrival_time <= target] or group
+                    least_wait = sorted(on_time, key=lambda o: (small_hours(o), -o.arrival_time.timestamp()))
+                    overnight = sorted((o for o in group if o.departure_time.date() < ctx.mission_date),
+                                       key=lambda o: (small_hours(o), o.duration_minutes))
+                    candidates = [quickest[0], least_wait[0], *overnight[:1], *quickest[1:2]]
+                else:
+                    evening = sorted(group, key=lambda o: (o.arrival_time.hour >= 23 or o.arrival_time.hour < 4,
+                                                           -o.arrival_time.timestamp()))
+                    candidates = [*evening[:2], quickest[0]]
+                for option in candidates:
+                    if option not in picks and sum(1 for p in picks if p.mode == mode) < 3:
+                        picks.append(option)
             return picks
 
-        return shortlist(sd), shortlist(nb)
+        return shortlist(sd, "same_day"), shortlist(nb, "night_before")
 
     @staticmethod
     def _practical_ground(ctx: MissionContext, route: NormalizedRoute | None) -> NormalizedRoute | None:
@@ -634,7 +782,9 @@ class MissionEngine:
                           "train": "Live schedule from Google Maps transit · estimated fare",
                           "bus": "Estimated bus/transit route from Google Maps · estimated fare",
                           "ground": "Live road route from Google Maps · estimated cab fare"}[mode]
-                if mode in ("train", "bus") and best.transit and best.transit.fare_source == "google_search_transport_options":
+                if mode in ("train", "bus") and best.transit and best.transit.source == "google_search_transport_options":
+                    reason = f"Live {'train' if mode == 'train' else 'bus'} times and fares from Google Search · station transfers estimated"
+                elif mode in ("train", "bus") and best.transit and best.transit.fare_source == "google_search_transport_options":
                     reason = (f"Live schedule from Google Maps transit · fare shown by Google Search"
                               if mode == "train" else "Bus route from Google Maps transit · fare shown by Google Search")
                 if self.provider.mode == "demo":
@@ -655,11 +805,11 @@ class MissionEngine:
                           "No flights found between these airports")
             elif mode == "train":
                 reason = ("Trains were found, but none arrive in time" if any(o.mode == "train" for o in transit_all)
-                          else "Google Maps has no rail schedule for this route")
+                          else "Neither Google Maps nor Google Search listed trains for this route")
             elif mode == "bus":
                 reason = ("Buses were found, but none arrive in time"
                           if any(o.mode in ("bus", "transit") for o in transit_all)
-                          else "No intercity bus schedule in Google Maps for this route — check operators directly")
+                          else "Neither Google Maps nor Google Search listed buses for this route — check operators directly")
             elif plan and not plan.ground_search:
                 reason = plan.ground_reason
             elif ground_route is None:

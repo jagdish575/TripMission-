@@ -56,6 +56,10 @@ export function JourneyTimeline({ itinerary: it, mission }: { itinerary: Itinera
               {showDay && <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.06em] text-subtle">{day}</p>}
             </div>
             <div className="relative flex justify-center">
+              {isArrive && (
+                <span aria-hidden className={cx("absolute top-0 z-0 size-6 rounded-full animate-ping-soft",
+                  buffer < 0 ? "bg-red/40" : bufferOk ? "bg-green/40" : "bg-amber/40")} />
+              )}
               <span className={cx(
                 "relative z-10 grid size-6 place-items-center rounded-full border",
                 isDeadline ? "border-amber bg-amber text-ink" : isArrive ? "border-ink bg-ink text-white" : "border-line-strong bg-surface text-fg",

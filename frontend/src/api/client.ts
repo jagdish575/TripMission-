@@ -24,7 +24,8 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     response = await fetch(`${BASE}${path}`, {
       ...init,
       credentials: "include", // the session is an HttpOnly cookie
-      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      // FormData (file uploads) sets its own multipart boundary
+      headers: init?.body instanceof FormData ? init.headers : { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     });
   } catch {
     throw new ApiError(0, "network_error", "We can't reach TripMission right now. Check your connection and try again.");

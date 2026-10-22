@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 import { validateMission, type FieldErrors } from "../components/mission/fields";
 import { MissionBrief, MissionBriefCompact } from "../components/mission/MissionBrief";
 import { MissionForm } from "../components/mission/MissionForm";
+import { ScanDocument } from "../components/mission/ScanDocument";
 import { Button } from "../components/ui/Button";
 import { ErrorState } from "../components/ui/States";
 import { useHealth, useStartMission } from "../hooks/useMission";
@@ -82,7 +83,10 @@ export function PlanPage() {
       </div>
 
       <div className="mt-8 grid gap-10 lg:mt-10 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-12 xl:grid-cols-[minmax(0,1fr)_380px] xl:gap-16">
-        <MissionForm draft={draft} errors={errors} set={set} />
+        <div className="min-w-0">
+          {health.data?.document_scan && <div className="mb-10"><ScanDocument set={set} /></div>}
+          <MissionForm draft={draft} errors={errors} set={set} />
+        </div>
         <div className="hidden lg:block">
           <div className="sticky top-24">
             <MissionBrief draft={draft} pending={start.isPending} />

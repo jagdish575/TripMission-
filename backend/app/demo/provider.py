@@ -200,5 +200,12 @@ class DemoProvider:
         self._done(tracker, "google_maps_reviews", "hotel reviews", started)
         return ReviewBundle(place=place, reviews=reviews, topics=[], source="demo")
 
+    async def weather(self, city, travel_date, *, tracker):
+        """The demo dataset has no weather — nothing that could be mistaken for a live forecast."""
+        return None
+
+    async def disruption_news(self, city, *, tracker):
+        return []
+
     async def explore(self, origin, outbound, *, currency, tracker) -> list[ExploreDestination]:
         return []

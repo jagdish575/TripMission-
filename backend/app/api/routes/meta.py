@@ -30,6 +30,7 @@ def health() -> dict[str, Any]:
         "cache": get_cache().name,
         "ready": s.demo_mode or s.serpapi_configured,
         "email_delivery": get_email_provider(s).name,
+        "document_scan": s.cloudinary_configured,
     }
 
 

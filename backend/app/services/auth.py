@@ -30,6 +30,7 @@ log = get_logger(__name__)
 
 GOOGLE_CERTS_URL = "https://www.googleapis.com/oauth2/v3/certs"
 GOOGLE_ISSUERS = ("accounts.google.com", "https://accounts.google.com")
+GOOGLE_CLOCK_SKEW_SECONDS = 60
 _SESSION_ALG = "HS256"
 _ephemeral_secret = secrets.token_urlsafe(48)
 _jwks_client: jwt.PyJWKClient | None = None
@@ -104,7 +105,8 @@ def _google_keys() -> jwt.PyJWKClient:
 
 def _verify_google_sync(credential: str, client_id: str) -> dict[str, Any]:
     key = _google_keys().get_signing_key_from_jwt(credential)
-    claims = jwt.decode(credential, key.key, algorithms=["RS256"], audience=client_id,
+    # leeway: a PC clock a few seconds behind Google's makes a fresh token look "issued in the future"
+    claims = jwt.decode(credential, key.key, algorithms=["RS256"], audience=client_id, leeway=GOOGLE_CLOCK_SKEW_SECONDS,
                         options={"require": ["exp", "iat", "sub", "aud", "iss"]})
     if claims.get("iss") not in GOOGLE_ISSUERS:
         raise jwt.InvalidIssuerError("unexpected issuer")

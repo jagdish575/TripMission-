@@ -214,6 +214,11 @@ class TransitSegment(BaseModel):
     distance_km: float | None = None
 
 
+class TicketLink(BaseModel):
+    company: str
+    url: str
+
+
 class NormalizedTransit(BaseModel):
     """A public-transport option (train / bus / transit). Schedules are live from Google Maps; Google Maps
     returns no fares for Indian long-distance services, so `fare` is usually None (estimated later)."""
@@ -237,6 +242,7 @@ class NormalizedTransit(BaseModel):
     # (matched to a Google Search transport-options route) or "demo". None = no fare (estimated later).
     fare_source: str | None = None
     fare_seller: str | None = None  # ticket seller named by the source, e.g. "IRCTC" — never a booking
+    ticket_links: list[TicketLink] = Field(default_factory=list)  # from the matched Google Search route
 
 
 class ReportedTransportRoute(BaseModel):
@@ -253,3 +259,6 @@ class ReportedTransportRoute(BaseModel):
     numbers: list[str] = Field(default_factory=list)    # service numbers, e.g. ["12919"]
     operators: list[str] = Field(default_factory=list)
     sellers: list[str] = Field(default_factory=list)    # ticket providers listed by Google
+    ticket_links: list[TicketLink] = Field(default_factory=list)  # the sellers' own pages, as Google lists them
+    from_label: str | None = None    # boarding station / city as the box names it, e.g. "Indore Junction"
+    to_label: str | None = None      # e.g. "Bhopal (all stations)"

@@ -45,3 +45,10 @@ export const recheckMission = (id: string, simulateDelayMinutes?: number) =>
 /** Email previews are served by the backend under the same /api prefix as everything else. */
 export const emailPreviewHref = (path: string) =>
   `${(import.meta.env.VITE_API_URL ?? "/api").replace(/\/$/, "")}${path.replace(/^\/api/, "")}`;
+
+/** "I'm running late": plan again from where the traveller is now. Returns the new mission's id. */
+export const replanMission = (id: string, body: { location?: string; lat?: number; lng?: number; now: string }) =>
+  request<{ mission_id: string; status: string; mode: "live" | "demo" }>(`/missions/${encodeURIComponent(id)}/replan`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });

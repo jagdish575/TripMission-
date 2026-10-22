@@ -425,6 +425,7 @@ class ItineraryEngine:
         long_km = option.distance_km or 0
         local_services = [s for s in services if s.duration_minutes < 90]
         reported = option.fare_source == "google_search_transport_options"
+        from_search = option.source == "google_search_transport_options"
         if option.fare is not None:
             ticket, ticket_source = option.fare * travelers, "live"
             if option.source == "demo" or option.fare_source == "demo":
@@ -459,6 +460,9 @@ class ItineraryEngine:
         quality += [f"{l.from_label} → {l.to_label} time estimated from distance" for l in legs if l.estimated]
         if hotel is not None and hotel_cost is None:
             quality.append("Hotel price not available")
+        if from_search:
+            quality.append(f"Getting to {services[0].from_stop or 'the station'} and from {last.to_stop or 'the station'} "
+                           f"to the venue is estimated")
 
         main = MainLeg(
             mode=option.mode, provider=option.provider, title=option.title,  # type: ignore[arg-type]
@@ -468,16 +472,22 @@ class ItineraryEngine:
             duration_minutes=option.duration_minutes, stops=sum(s.stops_count for s in services),
             transfers=option.transfers, distance_km=option.distance_km, schedule_source="live",
             data_source="Demo dataset" if option.source == "demo" else
+            "Google Search transport options" if from_search else
             "Google Maps transit · fare from Google Search" if reported else "Google Maps transit",
             fare_label="Fare" if ticket_source == "live" else "Estimated fare",
-            note=("Train schedule from Google Maps transit. Not a booking — seat availability, fares and live "
+            note=(f"{'Train' if option.mode == 'train' else 'Bus'} times and fare as Google Search lists them; the "
+                  "station transfers are estimated. Not a booking — seats, the exact fare class and live running "
+                  "status aren't confirmed." if from_search else
+                  "Train schedule from Google Maps transit. Not a booking — seat availability, fares and live "
                   "running status aren't confirmed." if option.mode == "train" else
                   ("Bus schedule from Google Maps transit with the fare Google Search shows. Not a confirmed "
                    "ticket — check the operator for seats." if reported else
                    "Estimated bus/transit route from Google Maps transit. Not a confirmed ticket — check the "
                    "operator for seats and fares.")))
         total_travel = option.duration_minutes + sum(l.duration_minutes for l in legs)
-        ident = f"{'nb' if strategy == 'night_before' else 'sd'}-{option.mode}-{option.id.removeprefix('t-')[:8]}-{self._hotel_key(hotel)}"
+        # Google Maps ids are hashes (the first 8 characters are unique); Google Search ones read "gs-train-231315-9"
+        key = option.id.removeprefix("gs-") if option.id.startswith("gs-") else option.id.removeprefix("t-")[:8]
+        ident = f"{'nb' if strategy == 'night_before' else 'sd'}-{option.mode}-{key}-{self._hotel_key(hotel)}"
         return self._finish(
             ident=ident, mode=option.mode, strategy=strategy, main=main, legs=legs, timeline=timeline,
             venue_arrival=venue_arrival, departure=option.departure_time, cost=cost, hotel=hotel, check_in=check_in,

@@ -36,6 +36,10 @@ export interface MissionRequest {
   food_per_day: number;
   accessibility: AccessibilityNeed[];
   notifications?: NotificationPrefs | null;
+  /** Getting home: leave the venue after `leave_after` on `date`. */
+  return_trip?: { date: string; leave_after: string } | null;
+  earliest_departure?: string | null;
+  replan_of?: string | null;
 }
 
 export interface GeoPoint { lat: number; lng: number }
@@ -172,6 +176,35 @@ export interface Itinerary {
   total_travel_minutes: number; door_to_venue_minutes: number; scores: ScoreBreakdown; risk: RiskAssessment;
   constraints: ConstraintCheck; tags: Category[]; data_quality: string[]; confidence: Confidence;
   practicality: "high" | "low"; accessibility: AccessibilityNote[];
+  booking?: BookingStep[];
+}
+
+export interface BookingLink { label: string; url: string; kind: "seller" | "search" | "hotel" }
+
+export interface BookingStep {
+  key: "flight" | "train" | "bus" | "hotel" | "cab" | "transit"; title: string; detail: string; when: string | null;
+  links: BookingLink[];
+}
+
+export interface WeatherOutlook {
+  date: string; summary: string | null; high: number | null; low: number | null; unit: string;
+  precipitation: number | null; kind: string | null; label: string | null; location: string | null; source: string;
+}
+
+export interface DisruptionAlert { title: string; url: string; source: string | null; published_at: string; word: string }
+
+export interface TravelConditions {
+  weather: WeatherOutlook | null; weather_note: string | null; alerts: DisruptionAlert[]; checked_at: string;
+}
+
+export interface ReturnOption {
+  id: string; mode: Mode; title: string; departure_label: string; arrival_label: string; leave_venue_at: string;
+  departure_time: string; arrival_time: string; duration_minutes: number; fare: number | null;
+  fare_source: SourceType; note: string | null; tags: string[]; links: BookingLink[];
+}
+
+export interface ReturnPlan {
+  date: string; leave_after: string; options: ReturnOption[]; message: string | null; round_trip_total: number | null;
 }
 
 export interface Suggestion { kind: string; title: string; detail: string; unlocks: string | null; patch: Partial<MissionRequest> }
@@ -236,6 +269,8 @@ export interface MissionResult {
   suggestions: Suggestion[]; review_insights: Record<string, ReviewInsights>; places: PlaceGroup[];
   explanation: Explanation | null; funnel: FunnelStats; data_sources: DataSources; warnings: string[]; headline: string;
   route: RoutePlan | null; methodology: MethodNote[]; diagnostics: Record<string, unknown> | null;
+  conditions?: TravelConditions | null; return_plan?: ReturnPlan | null;
+  replan_of?: string | null; replanned_at?: string | null;
 }
 
 export type Stage = "resolve" | "flights" | "arrival" | "hotels" | "ground" | "scoring" | "reviews" | "places" | "explain";
@@ -251,6 +286,26 @@ export interface Health {
   serpapi_configured: boolean; ai_configured: boolean;
   ai_provider: string | null; ai_model: string | null; database: string; cache: string; ready: boolean;
   email_delivery: "smtp" | "resend" | "preview";
+  document_scan?: boolean;
+}
+
+export type ScannedFieldName = "mission_type" | "travel_date" | "arrival_deadline" | "event_time" | "venue" | "destination";
+
+export interface ScannedField {
+  value: string;
+  /** The line(s) of the document this value was read from. */
+  evidence: string;
+  label: string | null;
+}
+
+export interface ScanResult {
+  fields: Partial<Record<ScannedFieldName, ScannedField>>;
+  document_kind: string | null;
+  missing: ScannedFieldName[];
+  notes: string[];
+  lines_read: number;
+  document_deleted: boolean;
+  read_by: string;
 }
 
 export interface MissionTemplate {

@@ -17,6 +17,13 @@ const ACCESSIBILITY: { id: AccessibilityNeed; label: string }[] = [
   { id: "accessible_transport", label: "Accessible transport" },
 ];
 
+/** A sensible default for "free to leave after": three hours after the arrival deadline, capped at 22:00. */
+function suggestReturnTime(deadline: string): string {
+  const [h, m] = deadline.split(":").map(Number);
+  const total = Math.min((h ?? 10) * 60 + (m ?? 0) + 180, 22 * 60);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
 function FormSection({ index, title, description, children }: {
   index: number; title: string; description?: string; children: ReactNode;
 }) {
@@ -166,6 +173,25 @@ export function MissionForm({ draft, errors, set }: { draft: MissionRequest; err
           }}
             label="Consider arriving the day before"
             description="Arriving the evening before removes delay risk. We compare both automatically." />
+        </div>
+        <div className="mt-3 rounded-sm border border-line bg-paper px-4 py-3">
+          <Toggle checked={Boolean(draft.return_trip)}
+            onChange={(v) => set("return_trip", v ? { date: draft.travel_date, leave_after: suggestReturnTime(draft.arrival_deadline) } : null)}
+            label="Plan my way home too"
+            description="We'll find trains, buses, flights or a cab that leave after you're done, and show the round-trip cost." />
+          {draft.return_trip && (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Field label="Return date" htmlFor="return_date" error={errors.return_trip}>
+                <input id="return_date" type="date" className="field-input tnum" min={draft.travel_date}
+                  value={draft.return_trip.date}
+                  onChange={(e) => set("return_trip", { ...draft.return_trip!, date: e.target.value })} />
+              </Field>
+              <Field label="I'm free to leave after" htmlFor="return_after" hint="Local time at the venue">
+                <input id="return_after" type="time" className="field-input tnum" value={draft.return_trip.leave_after}
+                  onChange={(e) => set("return_trip", { ...draft.return_trip!, leave_after: e.target.value })} />
+              </Field>
+            </div>
+          )}
         </div>
       </FormSection>
 

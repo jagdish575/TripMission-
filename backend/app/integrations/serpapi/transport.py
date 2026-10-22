@@ -19,7 +19,7 @@ from datetime import date
 from typing import Any
 
 from app.integrations.serpapi.client import SerpApiMalformedResponse
-from app.schemas.travel import ReportedTransportRoute
+from app.schemas.travel import ReportedTransportRoute, TicketLink
 from app.utils.time import parse_duration_text
 
 ENGINE = "google"
@@ -113,6 +113,8 @@ def parse_transport_options(payload: Any) -> list[ReportedTransportRoute]:
     routes: list[ReportedTransportRoute] = []
     for box in _boxes(payload):
         box_mode = _mode_from(str(box.get("title") or ""))
+        box_from = box.get("from") if isinstance(box.get("from"), str) else None
+        box_to = box.get("to") if isinstance(box.get("to"), str) else None
         for raw in box.get("routes") or []:
             if not isinstance(raw, dict):
                 continue
@@ -143,5 +145,15 @@ def parse_transport_options(payload: Any) -> list[ReportedTransportRoute]:
                 fare=fare[0] if fare else None, currency=fare[1] if fare else None,
                 numbers=list(dict.fromkeys(numbers)), operators=list(dict.fromkeys(operators)),
                 sellers=list(dict.fromkeys(str(t["company"]).strip() for t in tickets
-                                           if isinstance(t.get("company"), str) and t["company"].strip()))))
+                                           if isinstance(t.get("company"), str) and t["company"].strip())),
+                ticket_links=_ticket_links(tickets), from_label=box_from, to_label=box_to))
     return routes
+
+
+def _ticket_links(tickets: list[dict]) -> list[TicketLink]:
+    out: dict[str, TicketLink] = {}
+    for t in tickets:
+        company, url = t.get("company"), t.get("url") or t.get("link")
+        if isinstance(company, str) and company.strip() and isinstance(url, str) and url.startswith("https://"):
+            out.setdefault(company.strip(), TicketLink(company=company.strip(), url=url))
+    return list(out.values())[:4]

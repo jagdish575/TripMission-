@@ -222,3 +222,26 @@ def test_upstream_errors_are_user_safe(api, mock_serpapi, status):
     body = response.json()["error"]
     assert "request_id" not in body
     assert not any(term in body["message"] for term in ("SERPAPI", "API key", "SerpApi", "HTTP", "abc"))
+
+
+def test_google_token_tolerates_small_clock_skew(monkeypatch):
+    """A token issued a few seconds 'in the future' (PC clock slightly behind Google) must still verify."""
+    import time
+
+    import jwt
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    from app.services import auth as auth_service
+
+    private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = int(time.time())
+    token = jwt.encode({"iss": "https://accounts.google.com", "aud": "client-1", "sub": "1", "email": "a@b.co",
+                        "email_verified": True, "iat": now + 20, "nbf": now + 20, "exp": now + 3600},
+                       private, algorithm="RS256")
+
+    class Keys:
+        def get_signing_key_from_jwt(self, _):
+            return type("K", (), {"key": private.public_key()})()
+
+    monkeypatch.setattr(auth_service, "_google_keys", lambda: Keys())
+    assert auth_service._verify_google_sync(token, "client-1")["sub"] == "1"

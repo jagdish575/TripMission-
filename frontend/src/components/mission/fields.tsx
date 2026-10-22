@@ -15,6 +15,11 @@ export function validateMission(d: MissionRequest): FieldErrors {
   else if (d.travel_date < todayIso(0)) e.travel_date = "That date is in the past.";
   if (!/^\d{2}:\d{2}$/.test(d.arrival_deadline)) e.arrival_deadline = "When do you need to be there?";
   if (!(d.budget > 0)) e.budget = "Enter your total budget.";
+  if (d.return_trip) {
+    if (!d.return_trip.date || d.return_trip.date < d.travel_date) e.return_trip = "The return can't be before your mission.";
+    else if (d.return_trip.date === d.travel_date && d.return_trip.leave_after <= d.arrival_deadline)
+      e.return_trip = "Set a time after your mission starts.";
+  }
   if (d.notifications && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.notifications.email.trim()))
     e.notifications = "Enter a valid email address, or switch off trip updates.";
   return e;

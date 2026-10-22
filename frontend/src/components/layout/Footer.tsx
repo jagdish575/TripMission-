@@ -28,14 +28,14 @@ export function Footer() {
         <div className="md:col-span-4">
           <p className="eyebrow text-white/45">Data</p>
           <p className="mt-3 text-[14px] leading-relaxed">
-            Live data via SerpApi: Google Flights, Hotels, Maps, Directions, Local and Maps Reviews. Prices and times
-            change — always confirm before booking.
+            Live data via SerpApi: Google Flights, Hotels, Maps, Directions, Local, Maps Reviews and News. Documents
+            read by Cloudinary OCR and deleted straight after. Prices and times change — always confirm before booking.
           </p>
         </div>
       </div>
       <div className="border-t border-white/10">
         <div className="container-page flex flex-col gap-2 py-5 text-[12.5px] text-white/45 sm:flex-row sm:justify-between">
-          <span>Built for the SerpApi India Hackathon 2026 · Travel &amp; Local Discovery</span>
+          <span>Built for Hacktober HackDays 2026 · SheBuilds × Cloudinary · Tech for Social Good</span>
           <span>TripMission does not book travel or guarantee arrival.</span>
         </div>
       </div>

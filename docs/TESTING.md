@@ -33,8 +33,9 @@ cd backend
 
 Run against PostgreSQL instead of SQLite with `TEST_DATABASE_URL=postgresql+psycopg://user:pass@host:5432/db`.
 
-**Latest run (10 Oct 2026): 155 passed** on SQLite (`pytest -q`, ~13 s). Frontend: **16 passed** (`npm test`),
-`npm run typecheck` clean. (Earlier milestone: 103 passed on SQLite and PostgreSQL 16.)
+**Latest run (22 Oct 2026): 199 passed** on SQLite (`pytest -q`, ~6 s). Frontend: **24 passed** (`npm test`),
+`npm run typecheck` clean, production build succeeds. (Earlier milestones: 155 passed on 10 Oct; 103 passed on
+SQLite and PostgreSQL 16.)
 
 Live end-to-end (Phase 38) verified with real SerpApi + EURI + PostgreSQL + Redis: Indore → Bangalore, interview,
 10:00, ₹10,000, Balanced — 22 live calls, 17 flights, 6 train routes (Indian Railways), 40 hotels, 27 journeys;

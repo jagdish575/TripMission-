@@ -12,6 +12,7 @@ from typing import Literal, Protocol
 from app.core.cache import get_cache
 from app.core.config import Settings, get_settings
 from app.core.errors import SetupRequiredError
+from app.integrations.serpapi import conditions as serp_conditions
 from app.integrations.serpapi import flights as serp_flights
 from app.integrations.serpapi import hotels as serp_hotels
 from app.integrations.serpapi import local as serp_local
@@ -58,6 +59,10 @@ class TravelDataProvider(Protocol):
 
     async def explore(self, origin: str, outbound: date | None, *, currency: str,
                       tracker: CallTracker) -> list[ExploreDestination]: ...
+
+    async def weather(self, city: str, travel_date: date, *, tracker: CallTracker) -> dict | None: ...
+
+    async def disruption_news(self, city: str, *, tracker: CallTracker) -> list[dict]: ...
 
 
 class SerpApiProvider:
@@ -146,6 +151,24 @@ class SerpApiProvider:
         payload = await self.client.search(serp_travel.ENGINE, params, ttl_seconds=serp_travel.TTL_SECONDS,
                                            tracker=tracker, purpose="explore")
         return serp_travel.parse_explore(payload)
+
+    async def weather(self, city, travel_date, *, tracker):
+        """Google weather answer box for the destination; None beyond the ~8-day forecast."""
+        today = date.today()
+        if not 0 <= (travel_date - today).days <= 7:
+            return None  # no forecast published that far out — don't spend a search
+        payload = await self.client.search(serp_conditions.WEATHER_ENGINE,
+                                           serp_conditions.build_weather_params(city, gl=self.gl, hl=self.hl),
+                                           ttl_seconds=serp_conditions.WEATHER_TTL_SECONDS, tracker=tracker,
+                                           purpose="weather (Google Search)")
+        return serp_conditions.parse_weather(payload, travel_date, today)
+
+    async def disruption_news(self, city, *, tracker):
+        payload = await self.client.search(serp_conditions.NEWS_ENGINE,
+                                           serp_conditions.build_news_params(city, gl=self.gl, hl=self.hl),
+                                           ttl_seconds=serp_conditions.NEWS_TTL_SECONDS, tracker=tracker,
+                                           purpose="disruption news (Google News)")
+        return serp_conditions.parse_news(payload, city)
 
 
 _serp_client: SerpApiClient | None = None

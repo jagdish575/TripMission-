@@ -153,6 +153,21 @@ class AccessibilityNote(BaseModel):
     detail: str
 
 
+class BookingLink(BaseModel):
+    label: str        # "IRCTC", "Google Flights", "Hotel website"
+    url: str
+    kind: Literal["seller", "search", "hotel"]  # seller = a ticket seller Google listed for this exact route
+
+
+class BookingStep(BaseModel):
+    """One thing to book for this journey, in the order it should be booked (scarcest first)."""
+    key: Literal["flight", "train", "bus", "hotel", "cab", "transit"]
+    title: str
+    detail: str
+    when: str | None = None       # "Book now — sleeper berths on this route sell out early"
+    links: list[BookingLink] = Field(default_factory=list)
+
+
 class Itinerary(BaseModel):
     id: str
     mode: Mode = "flight"
@@ -179,6 +194,7 @@ class Itinerary(BaseModel):
     tags: list[str] = Field(default_factory=list)
     data_quality: list[str] = Field(default_factory=list)
     accessibility: list[AccessibilityNote] = Field(default_factory=list)
+    booking: list[BookingStep] = Field(default_factory=list)
 
 
 class Suggestion(BaseModel):
@@ -357,6 +373,59 @@ class OptionDelta(BaseModel):
     time_saved_vs_cheapest_minutes: int | None = None
 
 
+class WeatherOutlook(BaseModel):
+    date: date
+    summary: str | None = None
+    high: float | None = None
+    low: float | None = None
+    unit: str = "°C"
+    precipitation: float | None = None   # percent
+    kind: str | None = None              # fog | storm | heavy_rain | snow | rain — a travel-relevant condition
+    label: str | None = None
+    location: str | None = None
+    source: str = "Google weather (via Google Search)"
+
+
+class DisruptionAlert(BaseModel):
+    title: str
+    url: str
+    source: str | None = None
+    published_at: datetime
+    word: str                            # the disruption word that matched, e.g. "bandh"
+
+
+class TravelConditions(BaseModel):
+    weather: WeatherOutlook | None = None
+    weather_note: str | None = None      # why there's no forecast ("published about a week ahead")
+    alerts: list[DisruptionAlert] = Field(default_factory=list)
+    checked_at: datetime
+
+
+class ReturnOption(BaseModel):
+    id: str
+    mode: Mode
+    title: str
+    departure_label: str
+    arrival_label: str
+    leave_venue_at: datetime             # when to leave the venue to make this departure
+    departure_time: datetime
+    arrival_time: datetime
+    duration_minutes: int
+    fare: float | None = None            # whole group
+    fare_source: SourceType = "estimated"
+    note: str | None = None
+    tags: list[str] = Field(default_factory=list)  # earliest_home | cheapest
+    links: list[BookingLink] = Field(default_factory=list)
+
+
+class ReturnPlan(BaseModel):
+    date: date
+    leave_after: str                     # "14:30" — when the traveller is free
+    options: list[ReturnOption] = Field(default_factory=list)
+    message: str | None = None           # e.g. why nothing was found
+    round_trip_total: float | None = None  # recommended outbound total + cheapest return fare
+
+
 class MissionResult(BaseModel):
     mission_id: str
     status: Literal["complete", "partial", "no_options"]
@@ -377,4 +446,8 @@ class MissionResult(BaseModel):
     headline: str
     route: RoutePlan | None = None
     methodology: list[MethodNote] = Field(default_factory=list)
+    conditions: TravelConditions | None = None
+    return_plan: ReturnPlan | None = None
+    replan_of: str | None = None             # the mission this one re-planned ("I'm running late")
+    replanned_at: datetime | None = None
     diagnostics: dict[str, object] | None = None  # DEBUG_MODE only: raw provider errors, timings

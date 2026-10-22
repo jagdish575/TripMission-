@@ -6,7 +6,10 @@ labelled demo dataset."""
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta
 from typing import Any
+
+from pydantic import ValidationError as PydanticValidationError
 
 from app.core.config import Settings, get_settings
 from app.core.database import session_scope
@@ -17,7 +20,7 @@ from app.engines.mission_engine import STAGES, MissionEngine, resolve_locations
 from app.integrations.serpapi.client import SerpApiError, public_message
 from app.models import Mission
 from app.repositories.mission_repository import MissionRepository
-from app.schemas.mission import MissionCreated, MissionRequest, MissionStatus
+from app.schemas.mission import MissionCreated, MissionRequest, MissionStatus, ReplanRequest
 from app.schemas.travel import ResolvedLocation
 from app.services.auth import AuthRequiredError, CurrentUser
 from app.services.providers import TravelDataProvider, get_provider
@@ -25,6 +28,21 @@ from app.services.providers import TravelDataProvider, get_provider
 log = get_logger(__name__)
 
 _running: set[asyncio.Task[Any]] = set()
+
+REPLAN_PREP_MINUTES = 15   # time to pack up and get moving before the first leg of a re-planned journey
+NEAREST_TOWN_KM = 40
+
+
+def nearest_town(lat: float, lng: float) -> str | None:
+    """The phone's location -> the nearest town we know (city centres and airport cities), within 40 km."""
+    from app.schemas.travel import GeoPoint
+    from app.services.geo import haversine_km
+    from app.services.places_reference import CITY_CENTRES
+
+    here = GeoPoint(lat=lat, lng=lng)
+    best = min(((haversine_km(here, GeoPoint(lat=la, lng=ln)), city) for city, _c, la, ln in set(CITY_CENTRES.values())),
+               default=None)
+    return best[1] if best and best[0] <= NEAREST_TOWN_KM else None
 
 
 def check_access(mission: Mission | None, user: CurrentUser | None, settings: Settings) -> Mission:
@@ -163,6 +181,57 @@ class MissionService:
         log.info("mission rechecked", extra={"context": {"mission_id": mission_id,
                                                           "simulated_delay": simulate_delay_minutes}})
         return result.model_dump(mode="json")
+
+    # ------------------------------------------------------------------ "I'm running late"
+    async def replan(self, mission_id: str, change: ReplanRequest, user: CurrentUser | None = None) -> MissionCreated:
+        """Plan again from where the traveller is now. Same venue, deadline, budget and preferences; only
+        journeys leaving at least REPLAN_PREP_MINUTES from now; a smaller buffer is accepted."""
+        with session_scope() as session:
+            mission = check_access(MissionRepository(session).get(mission_id), user, self.settings)
+            payload = dict(mission.request or {})
+        server_now = datetime.now()
+        if abs(change.now - server_now) > timedelta(hours=36):
+            raise ValidationAppError("Your device clock looks wrong — check the time and try again.", details={"field": "now"})
+        origin = change.location or nearest_town(change.lat, change.lng)  # type: ignore[arg-type]
+        if not origin:
+            raise ValidationAppError("We couldn't tell which town you're in — type its name instead.",
+                                     details={"field": "location"})
+        payload.pop("notifications", None)
+        original = MissionRequest(**payload)
+        earliest = change.now + timedelta(minutes=REPLAN_PREP_MINUTES)
+        deadline = datetime.combine(original.travel_date, original.arrival_deadline)
+        if earliest >= deadline:
+            raise ValidationAppError("Your arrival time has already passed, so there's nothing left to re-plan.",
+                                     code="deadline_passed")
+        payload.update(origin=origin, earliest_departure=earliest.isoformat(), replan_of=mission_id,
+                       min_buffer_minutes=min(original.min_buffer_minutes, 30),
+                       hotel_required=original.hotel_required and change.now.date() < original.travel_date)
+        try:
+            request = MissionRequest(**payload)
+        except PydanticValidationError as exc:
+            message = str(exc.errors()[0].get("msg", "Invalid request.")).removeprefix("Value error, ")
+            raise ValidationAppError(message) from exc
+        try:
+            return await self.start(request, user=user)
+        except ValidationAppError as exc:
+            if exc.code != "same_origin_destination":
+                raise
+            minutes = None
+            if change.lat is not None and change.lng is not None:
+                from app.schemas.travel import GeoPoint
+                from app.services.geo import ROAD_FACTOR, estimate_drive_minutes, haversine_km
+
+                with session_scope() as session:
+                    result = (MissionRepository(session).get(mission_id).result or {})
+                venue = ((result.get("mission") or {}).get("venue") or {}).get("location")
+                if venue:
+                    km = haversine_km(GeoPoint(lat=change.lat, lng=change.lng), GeoPoint(**venue)) * ROAD_FACTOR
+                    minutes = estimate_drive_minutes(km)
+            left = int((deadline - change.now).total_seconds() // 60)
+            raise ValidationAppError(
+                f"You're already in {original.destination}. Take a cab straight to the venue"
+                + (f" — about {minutes} min by road" if minutes else "") + f"; you have {left} min until "
+                f"{original.arrival_deadline:%H:%M}.", code="already_there") from exc
 
     @staticmethod
     def _fail(mission_id: str, code: str, message: str) -> None:

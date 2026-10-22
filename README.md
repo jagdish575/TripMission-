@@ -2,13 +2,23 @@
 
 > **Don't just plan the trip. Make sure you can actually make it.**
 
-TripMission is a **multi-modal, constraint-aware travel decision engine**. Give it a mission — *be at Manyata Tech
-Park, Bengaluru, by 10:00 on 9 October, from Indore, for ₹10,000, with an hour to spare* — and it searches live
-flights, **train and bus schedules**, road routes, hotels, maps, places and reviews through **SerpApi**, builds
-every complete journey (flight / train / bus / road + hotel + timed transfers), costs it all-in, scores it,
-analyses what could go wrong, and recommends the one you should take — then keeps you posted by email.
+TripMission is a **door-to-venue travel decision engine for people who can't afford to arrive late**.
+**Photograph your admit card** — Cloudinary OCR reads the date, reporting time and venue, then the image is
+deleted — and TripMission compares every complete journey by flight, train, bus and road using live Google data
+via **SerpApi**: costed all-in, scored, checked against the weather and local news, with what to book first, the
+way home, and a one-tap re-plan if you're running late.
 
-Built for the **Hacktoberfest 2026** event — Travel & Local Discovery.
+Built for **Hacktober HackDays 2026** (SheBuilds Delhi × Cloudinary, powered by MLH) — *Tech for Social Good*.
+
+| At a glance | |
+|--|--|
+| **Who it's for** | Exam candidates from small towns, patients travelling for treatment, first-time job seekers — anyone with a fixed reporting time in an unfamiliar city |
+| **The problem** | Travel sites list flights and hotels; none checks whether *home → station → train → cab → venue* gets you there before the gate closes, within your budget |
+| **Cloudinary** | Scan to plan: private upload → OCR add-on → table rows rebuilt from word boxes → fields with evidence → asset destroyed. [How](#how-cloudinary-is-used) |
+| **Live data** | 9 SerpApi engines: Google Flights, Hotels, Maps, Directions (incl. transit), Local, Maps Reviews, Search (train fares, weather), News, Travel Explore |
+| **Quality** | 199 backend + 24 frontend tests, strict TypeScript, external APIs mocked or replayed from recorded responses |
+| **Try it without keys** | *Continue in Demo Mode* — labelled demo data, never mixed with live data |
+| **For evaluators** | [docs/SUBMISSION.md](docs/SUBMISSION.md) maps judging criteria to code, tests and known limitations · [docs/BUILD_LOG.md](docs/BUILD_LOG.md) |
 
 ![Results](docs/screenshots/results.png)
 
@@ -24,6 +34,12 @@ hospital appointment, a broken chain means the trip failed.
 
 | | |
 |--|--|
+| **Scan to plan** | Photograph, drag in or paste an admit card, interview letter or appointment slip. Cloudinary OCR reads it; the parser fills in mission type, date, *reporting* time (not the exam start), venue and city — each with the line of the document it came from — and ignores the candidate's home address and date of birth. The user confirms before planning. |
+| **Weather & disruption risk** | The mission-day forecast and fresh local headlines (strikes, bandhs, floods, road closures, cancellations) become risk factors — fog hits a same-day flight harder than a night-before one. Phrases, not words: "bird strike" is not a strike. |
+| **Book this journey** | What to book, scarcest first (train → flight → bus → hotel → cab), with ticket sellers Google lists for that exact train, Google Flights / IRCTC / redBus / Google Hotels links, and Tatkal timing. |
+| **The way home** | "Plan my way home too": return flights, trains, buses or a cab you can still catch after you're free, with leave-the-venue times and a round-trip total. |
+| **Running late?** | Phone location or a typed town → a new plan from there, keeping only journeys that still leave after you can get moving; "you're already in the city — take a cab, ~N min" when that's the answer. |
+| **Trains even when Maps has none** | When Google Maps has no rail timetable for a route, real departures from Google Search become door-to-venue journeys — including overnight trains from the evening before. |
 | **No airport? No problem** | Door → venue, not airport → airport. A destination without an airport (Ujjain) is a valid place: TripMission finds the nearest *practical* airport, adds the road transfer, marks long transfers *low practicality*, and skips flight searches entirely for short trips (Indore → Ujjain is 62 km — train, bus and road are compared instead). |
 | **Flight vs train vs bus vs road** | Every mode is evaluated as a complete journey. Train/bus schedules are live from Google Maps transit; fares come from Google Search's transport-options box when a route clearly matches, otherwise they're labelled *Estimated fare*. Nothing is ever called a confirmed ticket. |
 | **Total trip cost** | Ticket + ground transport + hotel × nights + food, each line labelled LIVE / ESTIMATED / YOUR INPUT / CALCULATED, with budget remaining or over budget. |
@@ -41,6 +57,31 @@ hospital appointment, a broken chain means the trip failed.
 | **Why this journey?** | Explanation from the engine's numbers; AI-written when configured, and **rejected if it contains any number not in the data**. |
 | **How we decided** | A calm, collapsed panel: what's live, what's calculated, what's estimated. Request counts, timings and raw provider errors only with `DEBUG_MODE=true`. Optional data (cafés, reviews) fails quietly. |
 | **Accounts** | Sign in with Google (verified server-side) or **Continue in Demo Mode**. Planning asks to sign in and then carries on with the same form. *My trips* (upcoming, past, saved) and *Profile* (email, travel and notification preferences). |
+
+## How Cloudinary is used
+
+```
+photo / PDF ──► POST /api/v1/documents/scan ──► Cloudinary Upload API (type=private, ocr=adv_ocr)
+                 sign-in · 8 MB · type sniffed        │
+                 from bytes · 6/min                   ▼
+                                       OCR text + word bounding boxes
+                                                      │
+                     rows rebuilt from word boxes (tables, tilted photos) + the OCR's own block order
+                                                      │
+                     parser → mission type, date, reporting time, venue, city — each with its evidence line
+                                                      │
+                     Cloudinary Destroy API (invalidate) — always, in a finally block
+```
+
+* **Private delivery type** — an admit card carries a name, roll number, photo and date of birth; it never gets a
+  public URL, and neither the image nor the OCR text is stored.
+* **OCR add-on** — the word boxes matter: tabular admit cards are read column by column (all labels, then all
+  values), so rows are rebuilt from box positions after undoing the photo's tilt. A recorded real OCR response is
+  a regression test.
+* **Server-side signing** — the API secret never reaches the browser and is redacted from logs.
+* Code: [cloudinary/client.py](backend/app/integrations/cloudinary/client.py),
+  [documents/parser.py](backend/app/services/documents/parser.py),
+  [ScanDocument.tsx](frontend/src/components/mission/ScanDocument.tsx).
 
 ## Architecture
 
@@ -70,7 +111,8 @@ SerpApi is the live-data layer; our backend is the decision engine; AI only expl
 | `google_maps_directions` | Driving times + traffic ranges for every transfer; **transit mode** for live train/bus schedules (Indian Railways, city buses); the road-trip route |
 | `google_local` | Mission-contextual nearby places |
 | `google_maps_reviews` | Recent reviews and topics for the top hotels |
-| `google` (Google Search) | The **transport options** answer box: train/bus fares and ticket sellers, matched onto Maps transit options |
+| `google` (Google Search) | The **transport options** answer box — train/bus departures, fares and ticket sellers (matched onto Maps transit, or used directly when Maps has no timetable; mission day and the day before) — and the **weather** answer box for the mission day |
+| `google_news` | Recent disruption headlines at the destination (strikes, closures, floods, cancellations) |
 | `google_travel_explore` | Experimental `/api/v1/explore` endpoint |
 
 SerpApi has **no bus/train booking or seat-inventory API** (checked October 2026) — schedules come from Google Maps
@@ -102,6 +144,7 @@ cp .env.example .env          # add SERPAPI_API_KEY, or set DEMO_MODE=true
 | `DEMO_MODE` | no | `true` = labelled demo dataset (Indore → Bengaluru) |
 | `DATABASE_URL` | no | Empty = SQLite in `backend/`. Docker Postgres from compose: `postgresql+psycopg://tripvision:tripvision@localhost:55432/tripvision` |
 | `REDIS_URL` | no | Empty = database cache |
+| `CLOUDINARY_URL` | for scan to plan | `cloudinary://<api_key>:<api_secret>@<cloud_name>`; needs the **OCR Text Detection and Extraction** add-on. Empty = the scan card is hidden |
 | `EMAIL_PROVIDER`, `SMTP_*`, `RESEND_API_KEY`, `EMAIL_FROM`, `APP_BASE_URL` | no | Email delivery; without them emails are in-app previews |
 | `AI_PROVIDER` | no | `euri` (OpenAI-compatible, euron.one) or `anthropic` |
 | `AI_API_KEY` | no | Key for the chosen provider; `AI_MODEL` (+ optional fallback `AI_MODEL_FAST`), `AI_BASE_URL` for euri |
@@ -178,8 +221,8 @@ docker compose up --build      # UI http://localhost:8080 · API http://localhos
 ## Tests
 
 ```bash
-cd backend  && .venv/Scripts/python -m pytest -q     # 155 tests, mocked SerpApi — never calls the real API
-cd frontend && npm test                              # 16 component/unit tests
+cd backend  && .venv/Scripts/python -m pytest -q     # 199 tests — SerpApi and Cloudinary mocked or replayed; no keys needed
+cd frontend && npm test                              # 24 component/unit tests
 cd frontend && npm run build                         # strict type-check + production build
 ```
 Backend tests also run against PostgreSQL: `TEST_DATABASE_URL=postgresql+psycopg://... pytest`.
@@ -208,19 +251,24 @@ secrets from the platform's secret store.
 
 ## Documentation
 
-[Product requirements](docs/PRODUCT_REQUIREMENTS.md) · [HLD](docs/HLD.md) · [LLD](docs/LLD.md) ·
+**[Evaluator's guide](docs/SUBMISSION.md)** · **[Build log](docs/BUILD_LOG.md)** · [Product requirements](docs/PRODUCT_REQUIREMENTS.md) · [HLD](docs/HLD.md) · [LLD](docs/LLD.md) ·
 [Architecture](docs/ARCHITECTURE.md) · [Database](docs/DATABASE.md) · [API](docs/API_SPECIFICATION.md) ·
 [SerpApi integration](docs/SERPAPI_INTEGRATION.md) · [Scoring](docs/SCORING_ENGINE.md) · [Risk](docs/RISK_ENGINE.md) ·
 [UI/UX](docs/UI_UX.md) · [Testing](docs/TESTING.md) · [Deployment](docs/DEPLOYMENT.md) · [Demo script](docs/DEMO_SCRIPT.md)
 
 ## Roadmap
 
-Return and multi-city missions · live train fares and seat availability (IRCTC partner API) · intercity bus
-operators · live flight/train running status for re-planning on the day ·
-flexible-destination missions via Travel Explore · calendar import · shared missions · booking deep links.
+Shareable trip pass (Cloudinary overlay transformations) for WhatsApp · low-bandwidth images (`f_auto,q_auto`) ·
+live train seat availability (IRCTC partner API) · intercity bus operators · live flight/train running status to
+trigger re-planning automatically · multi-city missions · group arrivals (several travellers from different cities
+to one venue) · Hindi UI · calendar import.
 
 ## Hackathon
 
-Hacktoberfest 2026 — **Travel & Local Discovery**: *help people decide where to go and how to get there
-using current flights, hotels, maps, places, reviews, and destination data.* TripMission focuses on the
-**decide**.
+**Hacktober HackDays 2026** — SheBuilds Delhi × Cloudinary, powered by MLH. Theme: *build an impactful Tech
+for Social Good project addressing a real-world problem using the Cloudinary tech stack.*
+
+TripMission is for the people for whom a missed journey can't be undone — an exam candidate from a small town,
+a patient travelling for treatment, a first-time job seeker. **Cloudinary** reads their admit card, interview
+letter or appointment slip (OCR) and fills in the plan; the document is uploaded privately and deleted right
+after. The build journey is documented in [docs/BUILD_LOG.md](docs/BUILD_LOG.md) and on [Notion](https://app.notion.com/p/401197373fc08162abf4fb4408d8fc31).

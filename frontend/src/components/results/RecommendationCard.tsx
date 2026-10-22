@@ -2,7 +2,9 @@ import type { ReactNode } from "react";
 import type { Category, Itinerary, MissionSummary } from "../../types/api";
 import { cx, formatClock, formatMinutes, formatMoney } from "../../utils/format";
 import { CATEGORY_META, MODE_META, PRIORITIES } from "../../utils/mission";
+import { CountUp } from "../ui/CountUp";
 import { MissionScore } from "./MissionScore";
+import { RouteHero } from "./RouteHero";
 import { ScoreBreakdown } from "./ScoreBreakdown";
 
 function KeyFigure({ label, value, sub, tone }: { label: string; value: ReactNode; sub?: ReactNode; tone?: "warn" | "bad" }) {
@@ -51,8 +53,14 @@ export function RecommendationCard({ itinerary: it, mission, categories }: {
     : it.main.transfers === 0 ? "no changes" : `${it.main.transfers} change${it.main.transfers > 1 ? "s" : ""}`;
 
   return (
-    <article className="overflow-hidden rounded-lg border border-ink bg-surface">
-      <div className="bg-ink px-5 py-6 text-white sm:px-8 sm:py-7">
+    <article className="overflow-hidden rounded-lg border border-ink bg-surface shadow-[var(--shadow-lift)]">
+      <div className="relative isolate overflow-hidden bg-ink px-5 py-6 text-white sm:px-8 sm:py-7">
+        {/* slow-drifting glow behind the hero — colour, not information */}
+        <span aria-hidden className="pointer-events-none absolute -right-24 -top-28 -z-10 size-[340px] rounded-full bg-coral/25 blur-3xl animate-blob" />
+        <span aria-hidden className="pointer-events-none absolute -bottom-32 -left-20 -z-10 size-[300px] rounded-full bg-blue/25 blur-3xl animate-blob [animation-delay:-7s]" />
+        <div className="mb-7 rounded-md border border-white/10 bg-white/[0.04] px-4 py-4 backdrop-blur-sm sm:px-5">
+          <RouteHero itinerary={it} mission={mission} />
+        </div>
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:gap-8">
           <MissionScore score={it.scores.overall} onDark className="shrink-0" />
           <div className="min-w-0 flex-1">
@@ -62,7 +70,7 @@ export function RecommendationCard({ itinerary: it, mission, categories }: {
               </span>
               {categories.map((c) => (
                 <span key={c} className={cx("rounded-xs px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em]",
-                  c === "recommended" ? "bg-amber text-ink" : "bg-white/10 text-white")}>{CATEGORY_META[c].label}</span>
+                  c === "recommended" ? "badge-shine bg-amber text-ink" : "bg-white/10 text-white")}>{CATEGORY_META[c].label}</span>
               ))}
               <span className="text-[13px] text-white/60">{strategyLabel(it)}</span>
               {it.practicality === "low" && (
@@ -82,12 +90,15 @@ export function RecommendationCard({ itinerary: it, mission, categories }: {
           </div>
         </div>
         <div className="mt-7 grid grid-cols-2 gap-y-5 border-t border-white/10 pt-6 lg:grid-cols-4">
-          <KeyFigure label="Total trip cost" value={formatMoney(it.cost.total, it.cost.currency)}
+          <KeyFigure label="Total trip cost"
+            value={it.cost.total === null ? formatMoney(null, it.cost.currency)
+              : <CountUp key={it.id} value={it.cost.total} format={(n) => formatMoney(n, it.cost.currency)} />}
             tone={remaining !== null && remaining < 0 ? "bad" : undefined}
             sub={remaining === null ? "Some prices unknown" : remaining >= 0 ? `${formatMoney(remaining, it.cost.currency)} of budget left` : `${formatMoney(-remaining, it.cost.currency)} over budget`} />
           <KeyFigure label="At the venue" value={formatClock(it.arrival.venue_arrival)}
             sub={it.arrival.leave_hotel_at ? `Leave hotel ${formatClock(it.arrival.leave_hotel_at)}` : `Required ${mission.arrival_deadline}`} />
-          <KeyFigure label="Arrival buffer" value={buffer < 0 ? `${-buffer} min late` : `${buffer} min`} tone={bufferTone}
+          <KeyFigure label="Arrival buffer" tone={bufferTone}
+            value={buffer < 0 ? `${-buffer} min late` : <CountUp key={it.id} value={buffer} format={(n) => `${Math.round(n)} min`} />}
             sub={`${mission.min_buffer_minutes} min required`} />
           <KeyFigure label="Risk" value={it.risk.level.charAt(0) + it.risk.level.slice(1).toLowerCase()} tone={riskTone}
             sub={concerns === 0 ? "Nothing significant" : `${concerns} concern${concerns === 1 ? "" : "s"}`} />

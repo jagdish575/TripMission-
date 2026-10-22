@@ -21,7 +21,14 @@ import { optionEntries, OptionSwitcher } from "../components/results/OptionSwitc
 import { journeyTitle, RecommendationCard } from "../components/results/RecommendationCard";
 import { ResultsSkeleton } from "../components/results/ResultsSkeleton";
 import { ReviewInsights } from "../components/results/ReviewInsights";
+import { BookingPanel } from "../components/results/BookingPanel";
+import { ReturnPanel } from "../components/results/ReturnPanel";
 import { RiskPanel } from "../components/results/RiskPanel";
+import { RunningLate } from "../components/results/RunningLate";
+import { Verdict } from "../components/results/Verdict";
+import { Reveal } from "../components/ui/Reveal";
+import { riseItem, staggerList } from "../animations/motion";
+import { TravelConditionsPanel } from "../components/results/TravelConditionsPanel";
 import { TimeVsMoney } from "../components/results/TimeVsMoney";
 import { AccessibilityNotes, TransitCard } from "../components/results/TransitCard";
 import { RiskBadge } from "../components/ui/Badge";
@@ -99,6 +106,14 @@ export function ResultsPage() {
           </p>
         )}
 
+        {result.replan_of && (
+          <p className="flex flex-wrap items-center gap-2 rounded-sm border border-blue/25 bg-blue-wash px-3 py-2 text-[13px] text-blue-ink">
+            <Info className="size-4 shrink-0" aria-hidden />
+            Re-planned from where you were{result.replanned_at ? `, leaving after ${formatClock(result.replanned_at)}` : ""}.
+            <Link to={`/results/${result.replan_of}`} className="font-semibold underline">See the original plan</Link>
+          </p>
+        )}
+
         <RouteNotices result={result} />
 
         {result.status !== "complete" && (
@@ -130,22 +145,28 @@ export function ResultsPage() {
           </section>
         ) : selected && (
           <>
-            <header className="max-w-3xl">
-              <p className="eyebrow">{result.status === "complete" ? "Your recommended journey" : "Closest match"}</p>
-              <h1 className="display mt-2 text-[28px] leading-[1.12] sm:text-[36px] lg:text-[42px]">{result.headline}</h1>
+            <motion.header className="max-w-3xl" initial="hidden" animate="show" variants={staggerList}>
+              <motion.p variants={riseItem} className="eyebrow">{result.status === "complete" ? "Your recommended journey" : "Closest match"}</motion.p>
+              <motion.h1 variants={riseItem} className="display mt-2 text-[28px] leading-[1.12] sm:text-[36px] lg:text-[42px]">{result.headline}</motion.h1>
+              {recommended && (
+                <motion.div variants={riseItem} className="mt-4">
+                  <Verdict missionId={result.mission_id} itinerary={recommended} mission={result.mission} />
+                </motion.div>
+              )}
               <p className="mt-3 text-[15px] text-muted tnum">
                 We compared {plural(result.funnel.itineraries_scored, "complete door-to-door journey")} against your {noun}:
                 every ticket, transfer, hotel night and meal, timed to the minute you need to arrive.
               </p>
-              <div className="mt-4"><SoftNotices messages={result.warnings} /></div>
-            </header>
+              <motion.div variants={riseItem} className="mt-4"><SoftNotices messages={result.warnings} /></motion.div>
+              <motion.div variants={riseItem} className="mt-4"><RunningLate missionId={result.mission_id} /></motion.div>
+            </motion.header>
 
-            <section aria-labelledby="options-title" className="space-y-3">
+            <Reveal as="section" aria-labelledby="options-title" className="space-y-3">
               <h2 id="options-title" className="eyebrow">Your options</h2>
               <ModeOptions result={result} selectedId={selected.id} onSelect={select} />
-            </section>
+            </Reveal>
 
-            <section aria-labelledby="picks-title" className="space-y-3">
+            <Reveal as="section" aria-labelledby="picks-title" className="space-y-3">
               <h2 id="picks-title" className="eyebrow">Our picks</h2>
               <OptionSwitcher entries={entries} selectedId={selected.id} onSelect={select} />
               {others.length > 0 && (
@@ -169,7 +190,7 @@ export function ResultsPage() {
                   </ul>
                 </details>
               )}
-            </section>
+            </Reveal>
 
             <AnimatePresence mode="wait">
               <motion.div key={selected.id} id="journey-detail" className="space-y-8"
@@ -184,7 +205,7 @@ export function ResultsPage() {
 
                 <div className="grid gap-6 lg:grid-cols-12 lg:gap-8">
                   <section aria-labelledby="timeline-title" className="space-y-6 lg:col-span-7">
-                    <div className="card p-5 sm:p-6">
+                    <div className="card card-lift p-5 sm:p-6">
                       <div className="mb-6 flex items-baseline justify-between gap-4">
                         <h3 id="timeline-title" className="text-[17px] font-semibold tracking-[-0.01em]">Your journey, step by step</h3>
                         <span className="text-[12.5px] text-muted">Local times</span>
@@ -194,19 +215,32 @@ export function ResultsPage() {
                     <Suspense fallback={<Skeleton className="h-[300px] w-full" />}>
                       <JourneyMap itinerary={selected} mission={result.mission} />
                     </Suspense>
+                    <Reveal className="card-lift rounded-md"><BookingPanel steps={selected.booking} /></Reveal>
                   </section>
                   <div className="space-y-6 lg:col-span-5">
-                    <RiskPanel risk={selected.risk} />
-                    <CostBreakdownPanel itinerary={selected} />
-                    {selected.flight ? <FlightCard flight={selected.flight} travelers={result.mission.travelers} />
-                      : <TransitCard itinerary={selected} missionDate={result.mission.travel_date} />}
+                    <Reveal className="card-lift rounded-md"><RiskPanel risk={selected.risk} /></Reveal>
+                    <Reveal className="card-lift rounded-md" delay={0.06}><CostBreakdownPanel itinerary={selected} /></Reveal>
+                    <Reveal className="card-lift rounded-md" delay={0.12}>
+                      {selected.flight ? <FlightCard flight={selected.flight} travelers={result.mission.travelers} />
+                        : <TransitCard itinerary={selected} missionDate={result.mission.travel_date} />}
+                    </Reveal>
                     <AccessibilityNotes notes={selected.accessibility} />
                   </div>
                 </div>
               </motion.div>
             </AnimatePresence>
 
-            <section aria-labelledby="tradeoffs-title" className="space-y-4">
+            {(result.conditions || result.return_plan) && (
+              <Reveal as="section" aria-labelledby="before-title" className="space-y-4">
+                <SectionHeading eyebrow="Before you go" title={<span id="before-title">Weather, news and the way home</span>} />
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <TravelConditionsPanel conditions={result.conditions} city={result.mission.destination.city} />
+                  <ReturnPanel plan={result.return_plan} currency={result.mission.currency} />
+                </div>
+              </Reveal>
+            )}
+
+            <Reveal as="section" aria-labelledby="tradeoffs-title" className="space-y-4">
               <SectionHeading eyebrow="Compare modes" title={<span id="tradeoffs-title">Budget, time and money</span>} />
               <div className="grid gap-6 lg:grid-cols-2">
                 <BudgetComparison result={result} selectedId={selected.id} onSelect={select} />
@@ -223,16 +257,16 @@ export function ResultsPage() {
                   <ComparisonTable columns={compareColumns} mission={result.mission} onOpen={select} />
                 </div>
               )}
-            </section>
+            </Reveal>
 
             {selected.hotel && (
-              <section aria-labelledby="stay-title" className="space-y-4">
+              <Reveal as="section" aria-labelledby="stay-title" className="space-y-4">
                 <SectionHeading eyebrow="Where you'll stay" title={<span id="stay-title">The hotel</span>} />
                 <div className="grid gap-6 lg:grid-cols-12">
                   <div className="lg:col-span-7"><HotelCard itinerary={selected} mission={result.mission} /></div>
                   <div className="lg:col-span-5"><ReviewInsights insights={result.review_insights[selected.hotel.id]} /></div>
                 </div>
-              </section>
+              </Reveal>
             )}
 
             <EmailPanel missionId={result.mission_id} demo={result.mode === "demo"} />
@@ -240,11 +274,11 @@ export function ResultsPage() {
         )}
 
         {result.places.some((g) => g.items.length > 0) && (
-          <section aria-labelledby="nearby-title" className="space-y-4">
+          <Reveal as="section" aria-labelledby="nearby-title" className="space-y-4">
             <SectionHeading eyebrow="Local discovery" title={<span id="nearby-title">Around {result.mission.venue.name}</span>}
               description={`Picked for your ${noun}: places that are useful before or after you arrive.`} />
             <LocalDiscovery groups={result.places} venue={result.mission.venue.name} />
-          </section>
+          </Reveal>
         )}
 
         <DataSources result={result} />

@@ -83,6 +83,12 @@ class Settings(BaseSettings):
     auth_required: bool = True        # missions need a signed-in (Google or demo) session
     demo_login_enabled: bool = True   # "Continue in Demo Mode" for judges
 
+    # Cloudinary: scan-to-plan document OCR. CLOUDINARY_URL = cloudinary://<api_key>:<api_secret>@<cloud_name>
+    cloudinary_url: str = ""
+    cloudinary_folder: str = "tripmission"
+    document_max_bytes: int = 8 * 1024 * 1024
+    document_scan_rate_limit_per_minute: int = 6
+
     # HTTP
     frontend_url: str = "http://localhost:5173"
     max_request_bytes: int = 32 * 1024
@@ -160,6 +166,10 @@ class Settings(BaseSettings):
         return bool(self.ai_api_key.strip())
 
     @property
+    def cloudinary_configured(self) -> bool:
+        return self.cloudinary_url.strip().startswith("cloudinary://")
+
+    @property
     def database_kind(self) -> str:
         return "postgresql" if self.database_url.startswith("postgresql") else "sqlite"
 
@@ -187,7 +197,13 @@ class Settings(BaseSettings):
 
     def secret_values(self) -> list[str]:
         return [s for s in (self.serpapi_api_key, self.ai_api_key, self.smtp_password, self.resend_api_key,
-                            self.google_client_secret, self.session_secret) if s and len(s) >= 6]
+                            self.google_client_secret, self.session_secret, self.cloudinary_url,
+                            self._cloudinary_secret()) if s and len(s) >= 6]
+
+    def _cloudinary_secret(self) -> str:
+        from urllib.parse import urlparse
+
+        return urlparse(self.cloudinary_url.strip()).password or "" if self.cloudinary_configured else ""
 
 
 @lru_cache

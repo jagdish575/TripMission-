@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 import asyncio
 from pathlib import Path
 
-from app.api.routes import auth, me, meta, missions, notifications, search
+from app.api.routes import auth, documents, me, meta, missions, notifications, search
 from app.core.cache import init_cache
 from app.core.config import get_settings
 from app.core.database import init_db, session_scope
@@ -77,7 +77,10 @@ def create_app() -> FastAPI:
         token = request_id_var.set(rid[:64])
         try:
             length = request.headers.get("content-length")
-            if length and length.isdigit() and int(length) > settings.max_request_bytes:
+            # document uploads (scan to plan) get their own, larger limit; everything else stays small
+            limit = (settings.document_max_bytes + 64 * 1024 if request.url.path == "/api/v1/documents/scan"
+                     else settings.max_request_bytes)
+            if length and length.isdigit() and int(length) > limit:
                 return _error(413, "payload_too_large", "Request body is too large.")
             # CSRF defence in depth (the cookie is SameSite=Lax): state-changing requests from a browser
             # must come from an allowed origin.
@@ -118,7 +121,8 @@ def create_app() -> FastAPI:
         log.exception("unhandled error")
         return _error(500, "internal_error", "Something went wrong on our side. Please try again.")
 
-    for router in (meta.router, auth.router, me.router, missions.router, search.router, notifications.router):
+    for router in (meta.router, auth.router, me.router, missions.router, search.router, notifications.router,
+                   documents.router):
         app.include_router(router, prefix="/api/v1")
     _serve_frontend(app, Path(settings.static_dir))
     return app

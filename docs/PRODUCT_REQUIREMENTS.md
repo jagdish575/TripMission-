@@ -81,22 +81,27 @@ being currency- and region-agnostic.
 13. **Transparency** — which live sources were called, which were cache hits, when data was fetched.
 14. **Demo mode** — explicit, labelled, deterministic dataset for the interview scenario.
 
-## 7. Future features
+## 7. Built since the MVP (October 2026)
 
-* Return journeys and multi-city missions.
-* Train and bus options (Indian Railways, intercity buses) as alternative modes.
-* Live flight-status monitoring on the day, with re-planning alerts.
-* Google Travel Explore — "flexible destination" missions (endpoint implemented, UI not yet).
-* Calendar import (ICS) to create missions automatically.
-* Accounts, saved missions, sharing a mission with family.
-* Booking deep-links and price alerts.
+* **Scan to plan** — Cloudinary OCR reads an admit card / interview letter / appointment slip into the form.
+* Train, bus and road as full alternative modes; Google Search departures when Google Maps has no timetable.
+* Weather and disruption news as risk factors.
+* Booking hand-off ordered by scarcity; return journeys; "I'm running late" re-planning.
+* Accounts (Google sign-in or Demo Mode), saved missions, email summaries, reminders and change alerts.
 
-## 8. Non-goals
+## 8. Future features
+
+* Shareable trip pass image (Cloudinary overlays) and low-bandwidth image delivery.
+* Live flight/train running status to trigger re-planning automatically.
+* Multi-city missions and group arrivals; Google Travel Explore "flexible destination" missions (endpoint exists).
+* Calendar import (ICS); price alerts; Hindi UI.
+
+## 9. Non-goals
 
 * TripMission is **not** a booking engine — it links out, it does not transact.
 * It does **not** generate itineraries with an LLM. The LLM never chooses or invents a journey.
 * It does **not** guarantee arrival; it quantifies risk from available data.
-* No authentication in the MVP.
+* It does **not** keep travellers' documents — scanned images are deleted from Cloudinary straight after reading.
 
 ## 9. Hackathon positioning
 

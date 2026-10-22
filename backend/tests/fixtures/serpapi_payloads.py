@@ -182,6 +182,8 @@ class MockSerpApi:
         self.overrides: dict[str, httpx.Response | Exception] = {}
         # engine=google (transport-options answer box): None = an ordinary results page without the box
         self.transport_options: dict | None = None
+        self.news: dict | None = None      # engine=google_news
+        self.weather: dict | None = None   # engine=google with q="weather …"
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         params = dict(request.url.params)
@@ -215,8 +217,10 @@ class MockSerpApi:
             body = local_payload(params.get("q", ""))
         elif engine == "google_maps_reviews":
             body = reviews_payload()
+        elif engine == "google_news":
+            body = self.news or {"search_metadata": {"status": "Success"}, "news_results": []}
         elif engine == "google":
-            body = self.transport_options or {"search_metadata": {"status": "Success"},
+            body = (self.weather if params.get("q", "").startswith("weather ") and self.weather else None) or                 self.transport_options or {"search_metadata": {"status": "Success"},
                                               "organic_results": [{"position": 1, "title": "Timetable"}]}
         else:
             return httpx.Response(400, json={"error": f"Unsupported engine {engine}"})
