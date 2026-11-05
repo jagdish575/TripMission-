@@ -32,7 +32,7 @@ export function Footer() {
       </div>
       <div className="border-t border-ivory/10">
         <div className="container-page flex flex-col gap-2 py-5 text-[12.5px] text-slate sm:flex-row sm:justify-between">
-          <span>BUILDX 2026 by Code-A-Nova · Build Without Limit</span>
+          <span>HERHACK 2026 · AI track · Team Datadragon</span>
           <span>TripMission does not book travel or guarantee arrival.</span>
         </div>
       </div>

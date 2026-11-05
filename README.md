@@ -8,8 +8,8 @@ deleted — and TripMission compares every complete journey by flight, train, bu
 via **SerpApi**: costed all-in, scored, checked against the weather and local news, with what to book first, the
 way home, and a one-tap re-plan if you're running late.
 
-Built for **BUILDX 2026** by Code-A-Nova — a 36-hour international online hackathon, theme *Build Without Limit*
-(1 October – 10 November 2026). Team: Jagdish Prajapati and Sumit Meena.
+Built for **HERHACK 2026** — a 36-hour national-level women-focused hackathon at Echelon Institute of Technology,
+Faridabad (20–21 November 2026), **AI track**. Team **Datadragon**: Kusum and Nikita.
 
 | At a glance | |
 |--|--|
@@ -266,17 +266,18 @@ to one venue) · Hindi UI · calendar import.
 
 ## Hackathon
 
-**BUILDX 2026** — a 36-hour, international-level online hackathon organized by **Code-A-Nova**, with the theme
-*Build Without Limit*: participants pick a real-world problem, define their own problem statement and build a
-working solution across domains such as AI, CivicTech, FinTech, HealthTech and Open Innovation.
+**HERHACK 2026** — a 36-hour, national-level women-focused hackathon at **Echelon Institute of Technology,
+Faridabad, Haryana**, bringing together women innovators, developers and students to build solutions for
+real-world problems. Tracks: Web3 / Blockchain, Artificial Intelligence, IoT and Student Innovation, plus a Women
+Safety Special Award open to projects in any track.
 
 | | |
 |--|--|
-| **Organizer** | Code-A-Nova |
-| **Dates** | 1 October 2026 – 10 November 2026 |
-| **Format** | Online · 36 hours of building · own problem statement · AI tools allowed |
-| **Track** | Software Development (AI × CivicTech) |
-| **Team** | Jagdish Prajapati ([jagdishprajapati573@gmail.com](mailto:jagdishprajapati573@gmail.com)) · Sumit Meena ([sumitmeena9560@gmail.com](mailto:sumitmeena9560@gmail.com)) |
+| **Venue** | Echelon Institute of Technology, Faridabad, Haryana |
+| **Project submission** | 10 November 2026 |
+| **Hackathon** | 20–21 November 2026 · 36 hours |
+| **Track** | **Track 2 — Artificial Intelligence (AI)** · uses computer vision (OCR reads the admit card), NLP (risk signals from news headlines and hotel reviews) and generative AI (plain-language explanation of the chosen journey) · also submitted for the **Women Safety Special Award** |
+| **Team** | **Datadragon** — Kusum ([jadhonkusum@gmail.com](mailto:jadhonkusum@gmail.com)) · Nikita |
 
 TripMission is for the people for whom a missed journey can't be undone — an exam candidate from a small town,
 a patient travelling for treatment, a first-time job seeker. **Cloudinary** reads their admit card, interview

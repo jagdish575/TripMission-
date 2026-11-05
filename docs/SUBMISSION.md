@@ -1,9 +1,9 @@
 # TripMission — evaluator's guide
 
 A one-page map from what a judge looks for to where it is in the code, how to verify it, and what doesn't work
-yet. Every claim links to a file or a test. Submitted to **BUILDX 2026** by Code-A-Nova — a 36-hour
-international online hackathon, theme *Build Without Limit* (1 October – 10 November 2026). Team: Jagdish
-Prajapati and Sumit Meena.
+yet. Every claim links to a file or a test. Submitted to **HERHACK 2026** — a 36-hour
+national-level women-focused hackathon at Echelon Institute of Technology, Faridabad (submission 10 November 2026,
+hackathon 20–21 November 2026), **AI track**. Team **Datadragon**: Kusum and Nikita.
 
 ## In one paragraph
 
